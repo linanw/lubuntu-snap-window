@@ -2,6 +2,7 @@
 
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -18,6 +19,13 @@ typedef struct {
     int w;
     int h;
 } Geometry;
+
+typedef struct {
+    int left;
+    int right;
+    int top;
+    int bottom;
+} FrameExtents;
 
 static volatile sig_atomic_t keep_running = 1;
 static bool verbose_logs = false;
@@ -143,33 +151,6 @@ static bool get_window_geometry(Display *dpy, Window win, Geometry *geom) {
     return true;
 }
 
-static Window top_level_under_root(Display *dpy, Window root, Window win) {
-    Window current = win;
-
-    while (current != None && current != root) {
-        Window root_ret = None;
-        Window parent_ret = None;
-        Window *children = NULL;
-        unsigned int child_count = 0;
-
-        if (!XQueryTree(dpy, current, &root_ret, &parent_ret, &children, &child_count)) {
-            return win;
-        }
-
-        if (children) {
-            XFree(children);
-        }
-
-        if (parent_ret == root || parent_ret == None) {
-            return current;
-        }
-
-        current = parent_ret;
-    }
-
-    return win;
-}
-
 static bool is_snappable_window(Display *dpy, Window win) {
     XWindowAttributes attrs;
     if (win == None || !XGetWindowAttributes(dpy, win, &attrs)) {
@@ -214,6 +195,97 @@ static bool get_workarea(Display *dpy, Window root, int *x, int *y, int *w, int 
 
     XFree(data);
     return *w > 0 && *h > 0;
+}
+
+static bool get_frame_extents(Display *dpy, Window win, FrameExtents *extents) {
+    Atom prop = XInternAtom(dpy, "_NET_FRAME_EXTENTS", False);
+    Atom actual_type;
+    int actual_format;
+    unsigned long nitems, bytes_after;
+    unsigned char *data = NULL;
+
+    extents->left = 0;
+    extents->right = 0;
+    extents->top = 0;
+    extents->bottom = 0;
+
+    int status = XGetWindowProperty(
+        dpy,
+        win,
+        prop,
+        0,
+        4,
+        False,
+        XA_CARDINAL,
+        &actual_type,
+        &actual_format,
+        &nitems,
+        &bytes_after,
+        &data);
+
+    if (status != Success || !data || actual_type != XA_CARDINAL || actual_format != 32 || nitems < 4) {
+        if (data) {
+            XFree(data);
+        }
+        return false;
+    }
+
+    long *vals = (long *)data;
+    extents->left = (int)vals[0];
+    extents->right = (int)vals[1];
+    extents->top = (int)vals[2];
+    extents->bottom = (int)vals[3];
+
+    XFree(data);
+    return true;
+}
+
+static bool is_pcmanfm_qt_window(Display *dpy, Window win) {
+    XClassHint hint;
+    bool is_match = false;
+
+    hint.res_name = NULL;
+    hint.res_class = NULL;
+    if (!XGetClassHint(dpy, win, &hint)) {
+        return false;
+    }
+
+    if ((hint.res_name && strcmp(hint.res_name, "pcmanfm-qt") == 0) ||
+        (hint.res_class && strcmp(hint.res_class, "Pcmanfm-qt") == 0) ||
+        (hint.res_class && strcmp(hint.res_class, "pcmanfm-qt") == 0)) {
+        is_match = true;
+    }
+
+    if (hint.res_name) {
+        XFree(hint.res_name);
+    }
+    if (hint.res_class) {
+        XFree(hint.res_class);
+    }
+
+    return is_match;
+}
+
+static void move_resize_window_outer(Display *dpy, Window win, int x, int y, int w, int h) {
+    FrameExtents extents;
+    if (get_frame_extents(dpy, win, &extents)) {
+        if (is_pcmanfm_qt_window(dpy, win)) {
+            x += extents.left;
+            y += extents.top;
+        }
+        w -= extents.left + extents.right;
+        h -= extents.top + extents.bottom;
+    }
+
+    if (w < 50) {
+        w = 50;
+    }
+    if (h < 50) {
+        h = 50;
+    }
+
+    XMoveResizeWindow(dpy, win, x, y, (unsigned int)w, (unsigned int)h);
+    XFlush(dpy);
 }
 
 static bool in_corner(int px, int py, int sw, int sh, int *corner) {
@@ -359,11 +431,7 @@ static void snap_window_to_side(Display *dpy, Window win, int side, int sw, int 
         x = (side == 0) ? 0 : (sw / 2);
     }
 
-    if (w < 50) w = 50;
-    if (h < 50) h = 50;
-
-    XMoveResizeWindow(dpy, win, x, y, (unsigned int)w, (unsigned int)h);
-    XFlush(dpy);
+    move_resize_window_outer(dpy, win, x, y, w, h);
 }
 
 static void snap_window_to_top(Display *dpy, Window win, int sw, int sh) {
@@ -384,11 +452,7 @@ static void snap_window_to_top(Display *dpy, Window win, int sw, int sh) {
         h = work_h - 2;
     }
 
-    if (w < 50) w = 50;
-    if (h < 50) h = 50;
-
-    XMoveResizeWindow(dpy, win, x, y, (unsigned int)w, (unsigned int)h);
-    XFlush(dpy);
+    move_resize_window_outer(dpy, win, x, y, w, h);
 }
 
 static void snap_window_to_corner(Display *dpy, Window win, int corner, int sw, int sh) {
@@ -432,11 +496,7 @@ static void snap_window_to_corner(Display *dpy, Window win, int corner, int sw, 
             return;
     }
 
-    if (w < 50) w = 50;
-    if (h < 50) h = 50;
-
-    XMoveResizeWindow(dpy, win, x, y, (unsigned int)w, (unsigned int)h);
-    XFlush(dpy);
+    move_resize_window_outer(dpy, win, x, y, w, h);
 }
 
 static void sleep_poll_interval(void) {
@@ -521,25 +581,12 @@ int main(void) {
             Window active = None;
             Geometry g;
 
-            Window candidate = None;
-            if (child_ret != None) {
-                Window top = top_level_under_root(dpy, root, child_ret);
-                if (is_snappable_window(dpy, top)) {
-                    candidate = top;
-                }
-            }
-
-            if (candidate == None && get_active_window(dpy, root, &active)) {
-                Window top = top_level_under_root(dpy, root, active);
-                if (is_snappable_window(dpy, top)) {
-                    candidate = top;
-                }
-            }
-
-            if (candidate != None && get_window_geometry(dpy, candidate, &g)) {
+            if (get_active_window(dpy, root, &active) &&
+                is_snappable_window(dpy, active) &&
+                get_window_geometry(dpy, active, &g)) {
                 drag_candidate = true;
                 drag_start = g;
-                drag_win = candidate;
+                drag_win = active;
             } else {
                 drag_candidate = false;
                 drag_win = None;
