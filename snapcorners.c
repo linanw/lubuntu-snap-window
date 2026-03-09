@@ -10,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 
-#define CORNER_SIZE 40
+#define CORNER_SIZE 2
 #define POLL_USEC 20000
 
 typedef struct {

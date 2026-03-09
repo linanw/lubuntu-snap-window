@@ -21,6 +21,31 @@ make
 
 Requires X11 development headers (`libx11-dev` on Debian/Ubuntu).
 
+## Install
+
+Install to the default system location:
+
+```bash
+sudo make install
+```
+
+This installs the binaries into `/usr/local/bin`.
+
+To install somewhere else:
+
+```bash
+make install PREFIX=/usr
+make install BINDIR=$HOME/.local/bin
+```
+
+`DESTDIR` is for staging/package builds, not for choosing the final runtime path. Example:
+
+```bash
+make install DESTDIR=/tmp/pkg
+```
+
+This creates files under `/tmp/pkg/usr/local/bin`, not directly under `/usr/local/bin`.
+
 ## Run
 
 ```bash

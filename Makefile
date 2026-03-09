@@ -2,6 +2,8 @@ CC = /usr/bin/gcc
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
 LDFLAGS ?=
 LDLIBS ?= -lX11
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
 
 TARGETS = snapcorners focusnotify
 AUTOSTART_DIR = $(HOME)/.config/autostart
@@ -21,8 +23,8 @@ focusnotify: focusnotify.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
 
 install: $(TARGETS)
-	install -d $(DESTDIR)/usr/local/bin
-	install -m 0755 $(TARGETS) $(DESTDIR)/usr/local/bin
+	install -d "$(DESTDIR)$(BINDIR)"
+	install -m 0755 $(TARGETS) "$(DESTDIR)$(BINDIR)"
 
 clean:
 	rm -f $(TARGETS)
