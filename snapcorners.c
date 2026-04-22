@@ -240,7 +240,7 @@ static bool get_frame_extents(Display *dpy, Window win, FrameExtents *extents) {
     return true;
 }
 
-static bool is_pcmanfm_qt_window(Display *dpy, Window win) {
+static bool is_qt_window(Display *dpy, Window win) {
     XClassHint hint;
     bool is_match = false;
 
@@ -250,9 +250,7 @@ static bool is_pcmanfm_qt_window(Display *dpy, Window win) {
         return false;
     }
 
-    if ((hint.res_name && strcmp(hint.res_name, "pcmanfm-qt") == 0) ||
-        (hint.res_class && strcmp(hint.res_class, "Pcmanfm-qt") == 0) ||
-        (hint.res_class && strcmp(hint.res_class, "pcmanfm-qt") == 0)) {
+    if (hint.res_class && (strstr(hint.res_class, "Qt") != NULL || strstr(hint.res_class, "qt") != NULL)) {
         is_match = true;
     }
 
@@ -269,7 +267,7 @@ static bool is_pcmanfm_qt_window(Display *dpy, Window win) {
 static void move_resize_window_outer(Display *dpy, Window win, int x, int y, int w, int h) {
     FrameExtents extents;
     if (get_frame_extents(dpy, win, &extents)) {
-        if (is_pcmanfm_qt_window(dpy, win)) {
+        if (is_qt_window(dpy, win)) {
             x += extents.left;
             y += extents.top;
         }

@@ -13,13 +13,15 @@ Small X11 tools for Lubuntu/LXQt:
 - Drag and release in bottom-right: snaps to bottom-right quarter.
 - When screen resolution changes, horizontal dock/panel windows are resized to fill full screen width.
 
+## Dependencies
+
+- X11 development headers: `sudo apt-get install libx11-dev` (on Debian/Ubuntu)
+
 ## Build
 
 ```bash
 make
 ```
-
-Requires X11 development headers (`libx11-dev` on Debian/Ubuntu).
 
 ## Install
 
