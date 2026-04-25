@@ -51,11 +51,12 @@ systemd-user-install: snapcorners
 		'Description=Snap Corners (X11 window snap helper)' \
 		'After=graphical-session.target' \
 		'PartOf=graphical-session.target' \
+		'StartLimitIntervalSec=0' \
 		'' \
 		'[Service]' \
 		'Type=simple' \
 		'ExecStart=$(SNAPCORNERS_SYSTEMD_BIN)' \
-		'Restart=on-failure' \
+		'Restart=always' \
 		'RestartSec=1' \
 		'Environment=SNAPCORNERS_VERBOSE=1' \
 		'' \
@@ -73,6 +74,7 @@ systemd-user-disable:
 	systemctl --user disable --now snapcorners.service || true
 	@echo "systemd user service disabled: snapcorners.service"
 
-systemd-user-restart: snapcorners
+systemd-user-restart: systemd-user-install
+	systemctl --user daemon-reload
 	systemctl --user restart snapcorners.service
 	@echo "systemd user service restarted: snapcorners.service"

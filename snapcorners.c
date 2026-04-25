@@ -12,6 +12,11 @@
 
 #define CORNER_SIZE 2
 #define POLL_USEC 20000
+#define MOVERESIZE_FLAG_X (1L << 8)
+#define MOVERESIZE_FLAG_Y (1L << 9)
+#define MOVERESIZE_FLAG_W (1L << 10)
+#define MOVERESIZE_FLAG_H (1L << 11)
+#define MOVERESIZE_SOURCE_PAGER (2L << 12)
 
 typedef struct {
     int x;
@@ -151,6 +156,90 @@ static bool get_window_geometry(Display *dpy, Window win, Geometry *geom) {
     return true;
 }
 
+static bool get_outer_window(Display *dpy, Window root, Window win, Window *out_win) {
+    Window current = win;
+
+    while (current != None && current != root) {
+        Window root_ret = None;
+        Window parent_ret = None;
+        Window *children = NULL;
+        unsigned int child_count = 0;
+
+        if (!XQueryTree(dpy, current, &root_ret, &parent_ret, &children, &child_count)) {
+            return false;
+        }
+
+        if (children) {
+            XFree(children);
+        }
+
+        if (parent_ret == None) {
+            break;
+        }
+
+        if (parent_ret == root) {
+            *out_win = current;
+            return true;
+        }
+
+        current = parent_ret;
+    }
+
+    *out_win = win;
+    return true;
+}
+
+static bool get_outer_window_geometry(Display *dpy, Window root, Window win, Geometry *geom) {
+    Window outer = None;
+    if (!get_outer_window(dpy, root, win, &outer)) {
+        return false;
+    }
+
+    return get_window_geometry(dpy, outer, geom);
+}
+
+static bool wm_supports_atom(Display *dpy, Window root, const char *atom_name) {
+    Atom supported_atom = XInternAtom(dpy, "_NET_SUPPORTED", False);
+    Atom needle = XInternAtom(dpy, atom_name, False);
+    Atom actual_type;
+    int actual_format;
+    unsigned long nitems, bytes_after;
+    unsigned char *data = NULL;
+
+    int status = XGetWindowProperty(
+        dpy,
+        root,
+        supported_atom,
+        0,
+        1024,
+        False,
+        XA_ATOM,
+        &actual_type,
+        &actual_format,
+        &nitems,
+        &bytes_after,
+        &data);
+
+    if (status != Success || !data || actual_type != XA_ATOM || actual_format != 32) {
+        if (data) {
+            XFree(data);
+        }
+        return false;
+    }
+
+    bool found = false;
+    Atom *atoms = (Atom *)data;
+    for (unsigned long i = 0; i < nitems; ++i) {
+        if (atoms[i] == needle) {
+            found = true;
+            break;
+        }
+    }
+
+    XFree(data);
+    return found;
+}
+
 static bool is_snappable_window(Display *dpy, Window win) {
     XWindowAttributes attrs;
     if (win == None || !XGetWindowAttributes(dpy, win, &attrs)) {
@@ -240,39 +329,81 @@ static bool get_frame_extents(Display *dpy, Window win, FrameExtents *extents) {
     return true;
 }
 
-static bool is_qt_window(Display *dpy, Window win) {
-    XClassHint hint;
-    bool is_match = false;
+static bool move_resize_window_outer_via_wm(Display *dpy, Window win, int x, int y, int w, int h) {
+    Window root = DefaultRootWindow(dpy);
+    Geometry client_geom;
+    Geometry outer_geom;
+    int client_w = w;
+    int client_h = h;
+    XEvent ev;
 
-    hint.res_name = NULL;
-    hint.res_class = NULL;
-    if (!XGetClassHint(dpy, win, &hint)) {
+    if (!wm_supports_atom(dpy, root, "_NET_MOVERESIZE_WINDOW")) {
         return false;
     }
 
-    if (hint.res_class && (strstr(hint.res_class, "Qt") != NULL || strstr(hint.res_class, "qt") != NULL)) {
-        is_match = true;
+    if (get_window_geometry(dpy, win, &client_geom) &&
+        get_outer_window_geometry(dpy, root, win, &outer_geom)) {
+        client_w -= outer_geom.w - client_geom.w;
+        client_h -= outer_geom.h - client_geom.h;
+    } else {
+        FrameExtents extents;
+        if (get_frame_extents(dpy, win, &extents)) {
+            client_w -= extents.left + extents.right;
+            client_h -= extents.top + extents.bottom;
+        }
     }
 
-    if (hint.res_name) {
-        XFree(hint.res_name);
+    if (client_w < 50) {
+        client_w = 50;
     }
-    if (hint.res_class) {
-        XFree(hint.res_class);
+    if (client_h < 50) {
+        client_h = 50;
     }
 
-    return is_match;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = win;
+    ev.xclient.message_type = XInternAtom(dpy, "_NET_MOVERESIZE_WINDOW", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = NorthWestGravity |
+                           MOVERESIZE_FLAG_X |
+                           MOVERESIZE_FLAG_Y |
+                           MOVERESIZE_FLAG_W |
+                           MOVERESIZE_FLAG_H |
+                           MOVERESIZE_SOURCE_PAGER;
+    ev.xclient.data.l[1] = x;
+    ev.xclient.data.l[2] = y;
+    ev.xclient.data.l[3] = client_w;
+    ev.xclient.data.l[4] = client_h;
+
+    if (XSendEvent(dpy, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &ev) == 0) {
+        return false;
+    }
+
+    XFlush(dpy);
+    return true;
 }
 
 static void move_resize_window_outer(Display *dpy, Window win, int x, int y, int w, int h) {
-    FrameExtents extents;
-    if (get_frame_extents(dpy, win, &extents)) {
-        if (is_qt_window(dpy, win)) {
-            x += extents.left;
-            y += extents.top;
+    Window root = DefaultRootWindow(dpy);
+    Geometry client_geom;
+    Geometry outer_geom;
+
+    if (move_resize_window_outer_via_wm(dpy, win, x, y, w, h)) {
+        return;
+    }
+
+    if (get_window_geometry(dpy, win, &client_geom) && get_outer_window_geometry(dpy, root, win, &outer_geom)) {
+        x += client_geom.x - outer_geom.x;
+        y += client_geom.y - outer_geom.y;
+        w -= outer_geom.w - client_geom.w;
+        h -= outer_geom.h - client_geom.h;
+    } else {
+        FrameExtents extents;
+        if (get_frame_extents(dpy, win, &extents)) {
+            w -= extents.left + extents.right;
+            h -= extents.top + extents.bottom;
         }
-        w -= extents.left + extents.right;
-        h -= extents.top + extents.bottom;
     }
 
     if (w < 50) {
@@ -455,40 +586,44 @@ static void snap_window_to_top(Display *dpy, Window win, int sw, int sh) {
 
 static void snap_window_to_corner(Display *dpy, Window win, int corner, int sw, int sh) {
     Window root = DefaultRootWindow(dpy);
-    int half_w = sw / 2;
-    int half_h = sh / 2;
     int x = 0;
     int y = 0;
-    int w = half_w - 2;
-    int h = half_h - 2;
     int work_x = 0;
     int work_y = 0;
     int work_w = sw;
     int work_h = sh;
     bool have_workarea = get_workarea(dpy, root, &work_x, &work_y, &work_w, &work_h);
+    int snap_x = have_workarea ? work_x : 0;
+    int snap_y = have_workarea ? work_y : 0;
+    int snap_w = have_workarea ? work_w : sw;
+    int snap_h = have_workarea ? work_h : sh;
+    int half_w = snap_w / 2;
+    int half_h = snap_h / 2;
+    int w = half_w - 2;
+    int h = half_h - 2;
 
     switch (corner) {
         case 0:
             // Top-left: 30% width and full usable work area height.
-            x = have_workarea ? work_x : 0;
-            y = have_workarea ? work_y : 0;
-            w = (int)(work_w * 0.30) - 2;
-            h = work_h - 2;
+            x = snap_x;
+            y = snap_y;
+            w = (int)(snap_w * 0.30) - 2;
+            h = snap_h - 2;
             break;
         case 1:
             // Top-right: 70% width and full usable work area height.
-            x = have_workarea ? (work_x + (int)(work_w * 0.30)) : (int)(sw * 0.30);
-            y = have_workarea ? work_y : 0;
-            w = (int)(work_w * 0.70) - 2;
-            h = work_h - 2;
+            x = snap_x + (int)(snap_w * 0.30);
+            y = snap_y;
+            w = (int)(snap_w * 0.70) - 2;
+            h = snap_h - 2;
             break;
         case 2:
-            x = 0;
-            y = half_h;
+            x = snap_x;
+            y = snap_y + half_h;
             break;
         case 3:
-            x = half_w;
-            y = half_h;
+            x = snap_x + half_w;
+            y = snap_y + half_h;
             break;
         default:
             return;

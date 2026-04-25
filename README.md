@@ -9,8 +9,8 @@ Small X11 tools for Lubuntu/LXQt:
 - Drag and release in top-right: snaps to right 70% width and full usable height.
 - Drag and release on the top screen edge (not in corners): snaps to full usable work area size.
 - Drag and release on the left or right screen edge: snaps to that side at 50% width and full usable height (screen height minus dock/panel area).
-- Drag and release in bottom-left: snaps to bottom-left quarter.
-- Drag and release in bottom-right: snaps to bottom-right quarter.
+- Drag and release in bottom-left: snaps to the bottom-left quarter of the usable work area.
+- Drag and release in bottom-right: snaps to the bottom-right quarter of the usable work area.
 - When screen resolution changes, horizontal dock/panel windows are resized to fill full screen width.
 
 ## Dependencies
@@ -88,7 +88,7 @@ Then log out and log in again (or reboot).
 
 ## More reliable startup (systemd user service)
 
-If `snapcorners` sometimes stops, run it as a user service so it auto-restarts:
+If `snapcorners` sometimes stops, run it as a user service so it starts automatically at login and restarts if it exits:
 
 ```bash
 make systemd-user-enable
@@ -110,6 +110,12 @@ Disable service:
 
 ```bash
 make systemd-user-disable
+```
+
+After changing the service settings, reload and restart it:
+
+```bash
+make systemd-user-restart
 ```
 
 ## Troubleshooting
