@@ -13,6 +13,8 @@ Small X11 tools for Lubuntu/LXQt:
 - Drag and release in bottom-right: snaps to the bottom-right quarter of the usable work area.
 - When screen resolution changes, horizontal dock/panel windows are resized to fill full screen width.
 
+Snap behaviour is fully customisable via a JSON profile file — see **[Snap Profiles](#snap-profiles)** below.
+
 ## Dependencies
 
 - X11 development headers: `sudo apt-get install libx11-dev` (on Debian/Ubuntu)
@@ -154,3 +156,107 @@ make clean && make
 - This tool is for X11 sessions.
 - `snapcorners` uses the current screen size from X11 and snap rules from this repo.
 - `focusnotify` uses `notify-send`; install `libnotify-bin` if notifications do not appear.
+
+## Snap Profiles
+
+Snap behaviour is configured through a JSON profile file. `snapcorners` loads it automatically at startup from:
+
+```
+$HOME/.config/snapcorners/profiles.json
+```
+
+Override the path with the `SNAPCORNERS_PROFILE` environment variable. If the file is absent, the built-in defaults are used.
+
+A ready-to-use example is included in [profiles.json](profiles.json). Copy it to the config directory:
+
+```bash
+mkdir -p ~/.config/snapcorners
+cp profiles.json ~/.config/snapcorners/profiles.json
+```
+
+### Profile structure
+
+```json
+{
+  "profiles": [
+    {
+      "name": "default",
+      "min_screen_width": 0,
+      "max_screen_width": 1920,
+      "triggers": { ... }
+    },
+    {
+      "name": "wide",
+      "min_screen_width": 1921,
+      "max_screen_width": 99999,
+      "triggers": { ... }
+    }
+  ]
+}
+```
+
+`snapcorners` picks the **first** profile whose `[min_screen_width, max_screen_width]` range includes the current display width. The profile is re-evaluated whenever the screen resolution changes.
+
+### Trigger keys
+
+Each entry under `"triggers"` maps a drag-zone name to a **snap target** — where the window is placed relative to the usable work area:
+
+| Key | Zone |
+|---|---|
+| `corner_top_left` | Mouse released in top-left pixel corner |
+| `corner_top_right` | Mouse released in top-right pixel corner |
+| `corner_bottom_left` | Mouse released in bottom-left pixel corner |
+| `corner_bottom_right` | Mouse released in bottom-right pixel corner |
+| `side_left` | Mouse released on left screen edge |
+| `side_right` | Mouse released on right screen edge |
+| `top_edge` | Mouse released on top screen edge (default, when no zone matches) |
+| `top_edge_zones` | Array of sub-zones along the top edge (see below) |
+
+### Snap target fields
+
+```json
+{ "x_frac": 0.0, "y_frac": 0.0, "w_frac": 0.5, "h_frac": 1.0 }
+```
+
+| Field | Meaning |
+|---|---|
+| `x_frac` | Left-edge offset from work area left, as a fraction of work area width |
+| `y_frac` | Top-edge offset from work area top, as a fraction of work area height |
+| `w_frac` | Window width as a fraction of work area width |
+| `h_frac` | Window height as a fraction of work area height |
+
+All values are in the range `[0.0, 1.0]`.
+
+### Top-edge sub-zones
+
+Use `top_edge_zones` to snap windows to different targets depending on **where along the top edge** the mouse is released. Each zone is matched by the mouse X position as a fraction of the full screen width:
+
+```json
+"top_edge_zones": [
+  {
+    "mouse_x_min_frac": 0.4444,
+    "mouse_x_max_frac": 0.5556,
+    "snap": { "x_frac": 0.3333, "y_frac": 0.0, "w_frac": 0.3333, "h_frac": 1.0 }
+  }
+]
+```
+
+The example above: when the mouse is dropped in the centre 1/9th of the top edge (positions 4/9 – 5/9 of screen width), the window snaps to a 1/3-width centred column. Zones are checked in order; if none match, `top_edge` is used.
+
+### Built-in profiles example
+
+The included [profiles.json](profiles.json) ships two profiles:
+
+**`default`** (≤ 1920 px wide) — original behaviour:
+- Top-left corner → left 30 %, full height
+- Top-right corner → right 70 %, full height
+- Left/right edge → left/right 50 %
+- Top edge → maximise to work area
+
+**`wide`** (> 1920 px wide) — optimised for ultrawide monitors:
+- Top-left corner → left 25 %, full height
+- Top-right corner → right 25 %, full height
+- Left/right edge → left/right 50 %
+- Top edge → maximise to work area
+- Top edge centre zone (mouse in middle 1/9) → 1/3 width, centred
+

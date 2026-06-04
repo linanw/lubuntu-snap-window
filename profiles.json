@@ -1,0 +1,101 @@
+{
+  "profiles": [
+    {
+      "name": "default",
+      "min_screen_width": 0,
+      "max_screen_width": 1920,
+      "triggers": {
+        "corner_top_left":     { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 0.30,   "h_frac": 1.0 },
+        "corner_top_right":    { "x_frac": 0.30,    "y_frac": 0.0, "w_frac": 0.70,   "h_frac": 1.0 },
+        "corner_bottom_left":  { "x_frac": 0.00,    "y_frac": 0.5, "w_frac": 0.50,   "h_frac": 0.5 },
+        "corner_bottom_right": { "x_frac": 0.50,    "y_frac": 0.5, "w_frac": 0.50,   "h_frac": 0.5 },
+        "side_left":           { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 0.50,   "h_frac": 1.0 },
+        "side_right":          { "x_frac": 0.50,    "y_frac": 0.0, "w_frac": 0.50,   "h_frac": 1.0 },
+        "top_edge":            { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 0.50,   "h_frac": 1.0 }
+      }
+    },
+    {
+      "name": "wide",
+      "min_screen_width": 1921,
+      "max_screen_width": 99999,
+      "triggers": {
+        "corner_top_left":     { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 0.25,   "h_frac": 1.0 },
+        "corner_top_right":    { "x_frac": 0.25,    "y_frac": 0.0, "w_frac": 0.75,   "h_frac": 1.0 },
+        "corner_bottom_left":  { "x_frac": 0.00,    "y_frac": 0.5, "w_frac": 0.50,   "h_frac": 0.5 },
+        "corner_bottom_right": { "x_frac": 0.50,    "y_frac": 0.5, "w_frac": 0.50,   "h_frac": 0.5 },
+        "side_left":           { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 0.50,   "h_frac": 1.0 },
+        "side_right":          { "x_frac": 0.50,    "y_frac": 0.0, "w_frac": 0.50,   "h_frac": 1.0 },
+        "left_edge_zones": [
+          {
+            "mouse_y_min_frac": 0.0000,
+            "mouse_y_max_frac": 0.3333,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 0.3333, "h_frac": 1.0 }
+          },
+          {
+            "mouse_y_min_frac": 0.3333,
+            "mouse_y_max_frac": 0.6667,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 0.5000, "h_frac": 1.0 }
+          },
+          {
+            "mouse_y_min_frac": 0.6667,
+            "mouse_y_max_frac": 1.0000,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 0.6667, "h_frac": 1.0 }
+          }
+        ],
+        "right_edge_zones": [
+          {
+            "mouse_y_min_frac": 0.0000,
+            "mouse_y_max_frac": 0.3333,
+            "snap": { "x_frac": 0.6667, "y_frac": 0.0, "w_frac": 0.3333, "h_frac": 1.0 }
+          },
+          {
+            "mouse_y_min_frac": 0.3333,
+            "mouse_y_max_frac": 0.6667,
+            "snap": { "x_frac": 0.5000, "y_frac": 0.0, "w_frac": 0.5000, "h_frac": 1.0 }
+          },
+          {
+            "mouse_y_min_frac": 0.6667,
+            "mouse_y_max_frac": 1.0000,
+            "snap": { "x_frac": 0.3333, "y_frac": 0.0, "w_frac": 0.6667, "h_frac": 1.0 }
+          }
+        ],
+        "top_edge":            { "x_frac": 0.00,    "y_frac": 0.0, "w_frac": 1.00,   "h_frac": 1.0 },
+        "top_edge_zones": [
+          {
+            "mouse_x_min_frac": 0.0000,
+            "mouse_x_max_frac": 0.3333,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 0.75, "h_frac": 1.0 }
+          },
+          {
+            "mouse_x_min_frac": 0.3333,
+            "mouse_x_max_frac": 0.6667,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 1.0000, "h_frac": 1.0 }
+          },
+          {
+            "mouse_x_min_frac": 0.6667,
+            "mouse_x_max_frac": 1.0000,
+            "snap": { "x_frac": 0.75, "y_frac": 0.0, "w_frac": 0.25, "h_frac": 1.0 }
+          }
+        ],
+        "bottom_edge":         { "x_frac": 0.20,    "y_frac": 0.0, "w_frac": 0.60,   "h_frac": 1.0 },
+        "bottom_edge_zones": [
+          {
+            "mouse_x_min_frac": 0.0000,
+            "mouse_x_max_frac": 0.3333,
+            "snap": { "x_frac": 0.0000, "y_frac": 0.0, "w_frac": 0.6000, "h_frac": 1.0 }
+          },
+          {
+            "mouse_x_min_frac": 0.3333,
+            "mouse_x_max_frac": 0.6667,
+            "snap": { "x_frac": 0.2000, "y_frac": 0.0, "w_frac": 0.6000, "h_frac": 1.0 }
+          },
+          {
+            "mouse_x_min_frac": 0.6667,
+            "mouse_x_max_frac": 1.0000,
+            "snap": { "x_frac": 0.4000, "y_frac": 0.0, "w_frac": 0.6000, "h_frac": 1.0 }
+          }
+        ]
+      }
+    }
+  ]
+}

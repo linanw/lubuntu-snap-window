@@ -16,8 +16,8 @@ SNAPCORNERS_SYSTEMD_BIN ?= /usr/local/bin/snapcorners
 
 all: $(TARGETS)
 
-snapcorners: snapcorners.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
+snapcorners: snapcorners.c snapconfig.c snapconfig.h
+	$(CC) $(CFLAGS) -o $@ snapcorners.c snapconfig.c $(LDFLAGS) $(LDLIBS)
 
 focusnotify: focusnotify.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)

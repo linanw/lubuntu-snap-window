@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "snapconfig.h"
+
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -34,6 +36,36 @@ typedef struct {
 
 static volatile sig_atomic_t keep_running = 1;
 static bool verbose_logs = false;
+
+/* ── Profile state ──────────────────────────────────────────────────────── */
+
+static SnapConfig snap_config;
+static bool config_loaded = false;
+
+/* Built-in fallback triggers (original hard-coded behaviour). */
+static const SnapTriggers BUILTIN_TRIGGERS = {
+    /* corner[4]: TL, TR, BL, BR */
+    .corner = {
+        {0.00, 0.0, 0.30, 1.0},
+        {0.30, 0.0, 0.70, 1.0},
+        {0.00, 0.5, 0.50, 0.5},
+        {0.50, 0.5, 0.50, 0.5},
+    },
+    /* side[2]: left, right */
+    .side = {
+        {0.00, 0.0, 0.50, 1.0},
+        {0.50, 0.0, 0.50, 1.0},
+    },
+    .top_edge    = {0.00, 0.0, 1.00, 1.0},
+    .bottom_edge = {0.00, 0.0, 1.00, 1.0},
+    .n_top_zones = 0,
+    .n_bottom_zones = 0,
+    .n_left_zones = 0,
+    .n_right_zones = 0,
+    .valid       = 1,
+};
+
+static const SnapTriggers *active_triggers = &BUILTIN_TRIGGERS;
 
 static void log_line(const char *level, const char *msg) {
     time_t now = time(NULL);
@@ -453,6 +485,10 @@ static bool in_top_edge(int py) {
     return py <= CORNER_SIZE;
 }
 
+static bool in_bottom_edge(int py, int sh) {
+    return py >= sh - CORNER_SIZE;
+}
+
 static bool window_is_dock(Display *dpy, Window win, Atom wm_type_atom, Atom dock_atom) {
     Atom actual_type;
     int actual_format;
@@ -539,97 +575,97 @@ static int resize_horizontal_docks_to_screen_width(Display *dpy, Window root, in
     return resized;
 }
 
-static void snap_window_to_side(Display *dpy, Window win, int side, int sw, int sh) {
-    Window root = DefaultRootWindow(dpy);
-    int work_x = 0;
-    int work_y = 0;
-    int work_w = sw;
-    int work_h = sh;
-    int x = 0;
-    int y = 0;
-    int w = (work_w / 2) - 2;
-    int h = work_h - 2;
-
-    if (get_workarea(dpy, root, &work_x, &work_y, &work_w, &work_h)) {
-        y = work_y;
-        w = (work_w / 2) - 2;
-        h = work_h - 2;
-        x = (side == 0) ? work_x : (work_x + (work_w / 2));
-    } else {
-        y = 0;
-        x = (side == 0) ? 0 : (sw / 2);
-    }
-
+/*
+ * Apply a SnapTarget relative to the given work area.
+ * x/y are offsets from work_x/work_y; w/h are fractions of work_w/work_h.
+ */
+static void snap_window_to_target(Display *dpy, Window win,
+                                   const SnapTarget *t,
+                                   int work_x, int work_y,
+                                   int work_w, int work_h) {
+    int x = work_x + (int)(t->x_frac * work_w);
+    int y = work_y + (int)(t->y_frac * work_h);
+    int w = (int)(t->w_frac * work_w) - 2;
+    int h = (int)(t->h_frac * work_h) - 2;
+    if (w < 50) w = 50;
+    if (h < 50) h = 50;
     move_resize_window_outer(dpy, win, x, y, w, h);
 }
 
-static void snap_window_to_top(Display *dpy, Window win, int sw, int sh) {
+static void get_workarea_or_screen(Display *dpy, int sw, int sh,
+                                    int *wx, int *wy, int *ww, int *wh) {
     Window root = DefaultRootWindow(dpy);
-    int work_x = 0;
-    int work_y = 0;
-    int work_w = sw;
-    int work_h = sh;
-    int x = 0;
-    int y = 0;
-    int w = sw - 2;
-    int h = sh - 2;
-
-    if (get_workarea(dpy, root, &work_x, &work_y, &work_w, &work_h)) {
-        x = work_x;
-        y = work_y;
-        w = work_w - 2;
-        h = work_h - 2;
-    }
-
-    move_resize_window_outer(dpy, win, x, y, w, h);
+    *wx = 0; *wy = 0; *ww = sw; *wh = sh;
+    get_workarea(dpy, root, wx, wy, ww, wh);
 }
 
-static void snap_window_to_corner(Display *dpy, Window win, int corner, int sw, int sh) {
-    Window root = DefaultRootWindow(dpy);
-    int x = 0;
-    int y = 0;
-    int work_x = 0;
-    int work_y = 0;
-    int work_w = sw;
-    int work_h = sh;
-    bool have_workarea = get_workarea(dpy, root, &work_x, &work_y, &work_w, &work_h);
-    int snap_x = have_workarea ? work_x : 0;
-    int snap_y = have_workarea ? work_y : 0;
-    int snap_w = have_workarea ? work_w : sw;
-    int snap_h = have_workarea ? work_h : sh;
-    int half_w = snap_w / 2;
-    int half_h = snap_h / 2;
-    int w = half_w - 2;
-    int h = half_h - 2;
+static void snap_window_to_side(Display *dpy, Window win, int side,
+                                 int sw, int sh, int mouse_y) {
+    int wx, wy, ww, wh;
+    get_workarea_or_screen(dpy, sw, sh, &wx, &wy, &ww, &wh);
 
-    switch (corner) {
-        case 0:
-            // Top-left: 30% width and full usable work area height.
-            x = snap_x;
-            y = snap_y;
-            w = (int)(snap_w * 0.30) - 2;
-            h = snap_h - 2;
-            break;
-        case 1:
-            // Top-right: 70% width and full usable work area height.
-            x = snap_x + (int)(snap_w * 0.30);
-            y = snap_y;
-            w = (int)(snap_w * 0.70) - 2;
-            h = snap_h - 2;
-            break;
-        case 2:
-            x = snap_x;
-            y = snap_y + half_h;
-            break;
-        case 3:
-            x = snap_x + half_w;
-            y = snap_y + half_h;
-            break;
-        default:
+    const SideEdgeZone *zones = (side == 0) ? active_triggers->left_zones : active_triggers->right_zones;
+    int zone_count = (side == 0) ? active_triggers->n_left_zones : active_triggers->n_right_zones;
+    double my_frac = (sh > 0) ? ((double)mouse_y / sh) : 0.5;
+
+    for (int i = 0; i < zone_count; i++) {
+        const SideEdgeZone *z = &zones[i];
+        if (my_frac >= z->mouse_y_min_frac && my_frac <= z->mouse_y_max_frac) {
+            snap_window_to_target(dpy, win, &z->target, wx, wy, ww, wh);
             return;
+        }
     }
 
-    move_resize_window_outer(dpy, win, x, y, w, h);
+    snap_window_to_target(dpy, win, &active_triggers->side[side],
+                          wx, wy, ww, wh);
+}
+
+static void snap_window_to_top(Display *dpy, Window win,
+                                int sw, int sh, int mouse_x) {
+    int wx, wy, ww, wh;
+    get_workarea_or_screen(dpy, sw, sh, &wx, &wy, &ww, &wh);
+
+    /* Check top-edge sub-zones first (matched by mouse x fraction). */
+    double mx_frac = (sw > 0) ? ((double)mouse_x / sw) : 0.5;
+    for (int i = 0; i < active_triggers->n_top_zones; i++) {
+        const TopEdgeZone *z = &active_triggers->top_zones[i];
+        if (mx_frac >= z->mouse_x_min_frac && mx_frac <= z->mouse_x_max_frac) {
+            snap_window_to_target(dpy, win, &z->target, wx, wy, ww, wh);
+            return;
+        }
+    }
+
+    snap_window_to_target(dpy, win, &active_triggers->top_edge,
+                          wx, wy, ww, wh);
+}
+
+static void snap_window_to_bottom(Display *dpy, Window win,
+                                   int sw, int sh, int mouse_x) {
+    int wx, wy, ww, wh;
+    get_workarea_or_screen(dpy, sw, sh, &wx, &wy, &ww, &wh);
+
+    double mx_frac = (sw > 0) ? ((double)mouse_x / sw) : 0.5;
+    for (int i = 0; i < active_triggers->n_bottom_zones; i++) {
+        const TopEdgeZone *z = &active_triggers->bottom_zones[i];
+        if (mx_frac >= z->mouse_x_min_frac && mx_frac <= z->mouse_x_max_frac) {
+            snap_window_to_target(dpy, win, &z->target, wx, wy, ww, wh);
+            return;
+        }
+    }
+
+    if (active_triggers->n_bottom_zones > 0) {
+        snap_window_to_target(dpy, win, &active_triggers->bottom_edge,
+                              wx, wy, ww, wh);
+    }
+}
+
+static void snap_window_to_corner(Display *dpy, Window win, int corner,
+                                   int sw, int sh) {
+    if (corner < 0 || corner > 3) return;
+    int wx, wy, ww, wh;
+    get_workarea_or_screen(dpy, sw, sh, &wx, &wy, &ww, &wh);
+    snap_window_to_target(dpy, win, &active_triggers->corner[corner],
+                          wx, wy, ww, wh);
 }
 
 static void sleep_poll_interval(void) {
@@ -652,6 +688,25 @@ int main(void) {
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
+    /* Load profile config (non-fatal if missing). */
+    const char *cfg_path = get_config_path();
+    if (cfg_path) {
+        config_loaded = (load_snap_config(cfg_path, &snap_config) != 0);
+        if (config_loaded) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "loaded %d profile(s) from %s",
+                     snap_config.n_profiles, cfg_path);
+            log_line("INFO", msg);
+        } else if (verbose_logs) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "no profile config at %s, using built-in defaults",
+                     cfg_path);
+            log_line("INFO", msg);
+        }
+    }
+
     Display *dpy = XOpenDisplay(NULL);
     if (!dpy) {
         log_line("ERROR", "could not open X display");
@@ -662,6 +717,22 @@ int main(void) {
     XSetIOErrorHandler(on_x_io_error);
 
     Window root = DefaultRootWindow(dpy);
+
+    /* Select the initial profile based on current screen width. */
+    if (config_loaded) {
+        int init_sw = DisplayWidth(dpy, DefaultScreen(dpy));
+        const SnapProfile *prof = select_profile(&snap_config, init_sw);
+        if (prof) {
+            active_triggers = &prof->triggers;
+            if (verbose_logs) {
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "activated profile \"%s\" for width %d",
+                         prof->name, init_sw);
+                log_line("INFO", msg);
+            }
+        }
+    }
 
     bool was_left_down = false;
     bool drag_candidate = false;
@@ -708,6 +779,25 @@ int main(void) {
             }
             prev_sw = sw;
             prev_sh = sh;
+
+            /* Select the matching snap profile for the new resolution. */
+            if (config_loaded) {
+                const SnapProfile *prof = select_profile(&snap_config, sw);
+                if (prof) {
+                    active_triggers = &prof->triggers;
+                    if (verbose_logs) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "activated profile \"%s\" for width %d",
+                                 prof->name, sw);
+                        log_line("INFO", msg);
+                    }
+                } else {
+                    active_triggers = &BUILTIN_TRIGGERS;
+                    if (verbose_logs)
+                        log_line("INFO", "no matching profile, using built-in defaults");
+                }
+            }
         }
 
         if (left_down && !was_left_down) {
@@ -744,14 +834,21 @@ int main(void) {
                     if (verbose_logs) {
                         log_line("INFO", "snapping to top edge");
                     }
-                    snap_window_to_top(dpy, drag_win, sw, sh);
+                    snap_window_to_top(dpy, drag_win, sw, sh, root_x);
                 } else {
-                    int side = -1;
-                    if (moved && in_side_edge(root_x, sw, &side)) {
+                    if (moved && in_bottom_edge(root_y, sh) && active_triggers->n_bottom_zones > 0) {
                         if (verbose_logs) {
-                            log_line("INFO", "snapping to side");
+                            log_line("INFO", "snapping to bottom edge");
                         }
-                        snap_window_to_side(dpy, drag_win, side, sw, sh);
+                        snap_window_to_bottom(dpy, drag_win, sw, sh, root_x);
+                    } else {
+                        int side = -1;
+                        if (moved && in_side_edge(root_x, sw, &side)) {
+                            if (verbose_logs) {
+                                log_line("INFO", "snapping to side");
+                            }
+                            snap_window_to_side(dpy, drag_win, side, sw, sh, root_y);
+                        }
                     }
                 }
             }
